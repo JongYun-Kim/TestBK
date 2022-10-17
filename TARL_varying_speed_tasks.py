@@ -69,6 +69,43 @@ class TAEnvMovingTasksInEpisode(Env):
         self.move_time = task_vel  # task speeds
         self.speed_has_changed = False
 
+    def in_episode_ns(self):
+        # Changes the speed of tasks
+        if self.time_step-1 < self.num_task/2:
+            # Increase the speed
+            self.move_time += 1
+        else:
+            # Decrease the speed
+            # You must be careful with negative values if not intended
+            self.move_time -= 1
+
+    def move_tasks(self):
+        move_time = self.move_time  # 당장은 task 모두가 같은 일정한 거리를 한 time_step에서 움직인다고 가정
+        # Compute new positions of the tasks
+        self.task_pos += self.task_vel * move_time
+        self.take_into_grid()  # brings the tasks into the boundary of the grid-world
+
+    def take_into_grid(self):
+        # This method brings all tasks outside the boundary into the grid of our interest
+        # And the velocities as well accordingly
+        changed = 1
+        has_been_changed = False
+        while changed:
+            changed = 0
+            for i, x in enumerate(self.task_pos):
+                if x > 99:
+                    self.task_pos[i] = 198 - x
+                    self.task_vel[i] = - self.task_vel[i]
+                    changed += 1
+                    has_been_changed = True
+                elif x < 0:
+                    self.task_pos[i] = - x
+                    self.task_vel[i] = - self.task_vel[i]
+                    changed += 1
+                    has_been_changed = True
+
+        return has_been_changed  # returns if the task positions have been changed in this call
+
     def get_distances(self, action):
         # Computes distances between each uav and its assigned task given the joint action
         # Get next target positions
@@ -84,44 +121,7 @@ class TAEnvMovingTasksInEpisode(Env):
 
         return distances, x_u_next, y_u_next  # traveled distances of the UAVs in a 1-D array
 
-    def move_tasks(self):
-        move_time = self.move_time  # 당장은 task 모두가 같은 일정한 거리를 한 time_step에서 움직인다고 가정
-        # Compute new positions of the tasks
-        self.task_pos += self.task_vel * move_time
-        self.take_into_grid()  # brings the tasks into the boundary of the grid-world
-
-    def in_episode_ns(self):
-        # Changes the speed of tasks
-        if self.time_step-1 < self.num_task/2:
-            # Increase the speed
-            self.move_time += 1
-        else:
-            # Decrease the speed
-            # You must be careful with negative values if not intended
-            self.move_time -= 1
-
-    def step(self, action):
-        # Update time step
-        self.time_step += 1
-        rewards_tot = np.zeros(self.num_uav)
-        rewards_tot += self.max_travel_dist
-
-        # In-episode NS generator: changes the speeds of tasks
-        self.in_episode_ns()
-
-        # Apply action
-        # Update UAV positions and get stationary rewards
-        # ## rewards_stationary, self.robot_pos_x[:], self.robot_pos_y[:] = self.get_distances(action)
-        # self.robot_pos = np.array()
-        # ## rewards_tot += -rewards_stationary
-
-        # Update task positions (They are moving)
-        self.move_tasks()
-
-        # Update uav positions (move them to each task)
-        rewards_non_stationary, self.robot_pos_x[:], self.robot_pos_y[:] = self.get_distances(action)
-        rewards_tot += -rewards_non_stationary
-
+    def apply_penalty(self, action, rewards_tot):
         # Impose penalty (1): target task duplications
         for dup in self.list_duplicates(action):  # dup[0]: task number, dump[1]: uav number in index
             if dup[0] == 0:  # 만약 선택한 task가 0으로 중복된거라면.. 그냥 계산 스킵
@@ -134,9 +134,37 @@ class TAEnvMovingTasksInEpisode(Env):
             if target_task == 0:  # 움직이지 않기로 한 경우
                 rewards_tot[uav_i] -= self.max_travel_dist  # 움직이지 않기로 했다면 패널티
                 continue
-            if self.done_task[target_task-1] == 1:  # 움직이긴 했는데 다음 목적지가 이미 끝난 task 라면..
+            if self.done_task[target_task - 1] == 1:  # 움직이긴 했는데 다음 목적지가 이미 끝난 task 라면..
                 rewards_tot[uav_i] -= self.max_travel_dist  # 헛수고한 만큼 패널티
                 continue
+
+        return rewards_tot
+
+    def step(self, action):
+        # Update time step
+        self.time_step += 1
+        # Initialization of reward array (step reward)
+        rewards_tot = np.zeros(self.num_uav)
+        rewards_tot += self.max_travel_dist
+
+        # In-episode NS generator: changes the speeds of tasks
+        self.in_episode_ns()
+
+        # Apply action:
+        # Update UAV positions and get stationary rewards
+        # ## rewards_stationary, self.robot_pos_x[:], self.robot_pos_y[:] = self.get_distances(action)
+        # self.robot_pos = np.array()
+        # ## rewards_tot += -rewards_stationary
+
+        # Update task positions (They are moving)
+        self.move_tasks()
+
+        # Update uav positions (move them to each task)
+        rewards_non_stationary, self.robot_pos_x[:], self.robot_pos_y[:] = self.get_distances(action)
+        rewards_tot += -rewards_non_stationary
+
+        # Apply penalty on the rewards array
+        rewards_tot = self.apply_penalty(action, rewards_tot)
 
         rewards = sum(rewards_tot)
 
@@ -161,7 +189,7 @@ class TAEnvMovingTasksInEpisode(Env):
         # Return step information as a gym env
         return np.copy(self.state), rewards, done, info
 
-        # https://stackoverflow.com/a/5419576
+        # See https://stackoverflow.com/a/5419576
     def list_duplicates(self, seq):
         tally = defaultdict(list)
         for i, item in enumerate(seq):
@@ -171,9 +199,10 @@ class TAEnvMovingTasksInEpisode(Env):
 
     def render(self, mode="human"):
         # Implement Viz
-        pass
         # Agent plot
         # Task plot
+        # Other settings
+        pass
 
     def pretty_print_state(self, vel=True, initials=False):
         print(f"robot_pos = \n {self.robot_pos.copy().reshape(2, -1)}")
@@ -247,31 +276,9 @@ class TAEnvMovingTasksInEpisode(Env):
         # target_vel *= vel_sign
         # # Reshape it into 2-dim vectors: (-1, 2)
         # target_vel = np.reshape(target_vel, [-1, 2])
-        target_vel = np.random.randint(0, 2, self.num_task*2)*2 - 1
+        target_vel = np.random.randint(0, 2, self.num_task*2)*2 - 1  # Get directional vectors with sqrt(2)
         # if the reshape above is commented out, the target_vel is a 1-D numpy array
-
         return target_vel
-
-    def take_into_grid(self):
-        # This method brings all tasks outside the boundary into the grid of our interest
-        # And the velocities as well accordingly
-        changed = 1
-        has_been_changed = False
-        while changed:
-            changed = 0
-            for i, x in enumerate(self.task_pos):
-                if x > 99:
-                    self.task_pos[i] = 198 - x
-                    self.task_vel[i] = - self.task_vel[i]
-                    changed += 1
-                    has_been_changed = True
-                elif x < 0:
-                    self.task_pos[i] = - x
-                    self.task_vel[i] = - self.task_vel[i]
-                    changed += 1
-                    has_been_changed = True
-
-        return has_been_changed  # returns if the task positions have been changed in this call
 
     def bs_todo_list(self):  # Do not call this method as it does nothing and really is what it is ...
         # TODO (1): Create render func to graphically view the results
