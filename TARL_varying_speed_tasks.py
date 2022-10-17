@@ -11,7 +11,7 @@ import numpy as np
 from collections import defaultdict
 
 
-class TAEnvMovingTasks(Env):
+class TAEnvMovingTasksInEpisode(Env):
     """
     - Gym Env에 상속된 클래스 (step, render, reset)
     - 시나리오: 정해진 수의 robot들이 랜덤한 초기점에서 시작해서 공간에 랜덤으로 산포된 task들의 위치를 모두 방문하는 시나리오.
@@ -26,7 +26,7 @@ class TAEnvMovingTasks(Env):
         3) Reward: Sum of distance-based reward of each robot
     """
 
-    def __init__(self, num_uav=2, num_task=3, task_vel=15):
+    def __init__(self, num_uav=2, num_task=30, task_vel=8):
         """
         :param num_uav: robot의 숫자
         :param num_task: task의 숫자
@@ -45,8 +45,8 @@ class TAEnvMovingTasks(Env):
         robot_pos_space = np.full((1, 2 * num_uav), 100)  # bound of the second vector
         done_task_space = 2 * np.ones((1, num_task))  # bound of the third vector: binary
         # Concatenate them into a single vector, the action space.
-        action_space_bound = np.concatenate((task_pos_space[0], robot_pos_space[0], done_task_space[0]))
-        self.observation_space = MultiDiscrete(np.array(action_space_bound))
+        observation_space_bound = np.concatenate((task_pos_space[0], robot_pos_space[0], done_task_space[0]))
+        self.observation_space = MultiDiscrete(np.array(observation_space_bound))
 
         # Initialize the variables
         self.num_uav = num_uav
@@ -63,10 +63,11 @@ class TAEnvMovingTasks(Env):
         self.travel_dist = np.zeros(num_uav)  # 로봇 별로 움직인 거리 1d array
         self.time_step = 0
         self.max_travel_dist = 142
-        self.task_vel = self.init_task_vel()
+        self.task_vel = self.init_task_vel()  # directions of tasks
         self.initial_task_vel = np.copy(self.task_vel)
-        self.vel_ratio_task_to_uav = 0.5  # Must be below 1 and non-negative (v_t = r * v_u)
-        self.move_time = task_vel
+        self.vel_ratio_task_to_uav = 0.5  # must be below 1 and non-negative (v_t = r * v_u)
+        self.move_time = task_vel  # task speeds
+        self.speed_has_changed = False
 
     def get_distances(self, action):
         # Computes distances between each uav and its assigned task given the joint action
@@ -89,11 +90,24 @@ class TAEnvMovingTasks(Env):
         self.task_pos += self.task_vel * move_time
         self.take_into_grid()  # brings the tasks into the boundary of the grid-world
 
+    def in_episode_ns(self):
+        # Changes the speed of tasks
+        if self.time_step-1 < self.num_task/2:
+            # Increase the speed
+            self.move_time += 1
+        else:
+            # Decrease the speed
+            # You must be careful with negative values if not intended
+            self.move_time -= 1
+
     def step(self, action):
         # Update time step
         self.time_step += 1
         rewards_tot = np.zeros(self.num_uav)
         rewards_tot += self.max_travel_dist
+
+        # In-episode NS generator: changes the speeds of tasks
+        self.in_episode_ns()
 
         # Apply action
         # Update UAV positions and get stationary rewards
@@ -154,80 +168,6 @@ class TAEnvMovingTasks(Env):
             tally[item].append(i)
         return ((key, locs) for key, locs in tally.items()
                 if len(locs) > 1)
-
-    def step0(self, action):
-        # Deprecated step method of the environment. plz ignore it.
-        self.time_step += 1
-        # State update (w/o task completions )
-        # Check if tasks went out of the boundary of the grid
-        if self.take_into_grid():
-            print("IN STEP: The tasks went out of the grid")
-
-        # Compute travel distance of each robot given the action
-        for i in range(self.num_uav):  # for each uav_i..
-            robot_decision = action[i]
-            if robot_decision == 0:  # robot_i 가 아무것도 안하기로 했다면.. (위치 고수)
-                self.travel_dist[i] = 0
-                # continue
-            else:  # robot_i가 특정한 결정을 했다면..
-                x_pri = self.robot_pos_x[i]
-                y_pri = self.robot_pos_y[i]
-                # print(f"IN_STEP_(1): previous position of UAV_{i+1} = ({x_pri},{y_pri})")
-                # Update the robot position
-                self.robot_pos_x[i] = self.task_pos_x[robot_decision-1]
-                self.robot_pos_y[i] = self.task_pos_y[robot_decision-1]
-                x_post = self.robot_pos_x[i]
-                y_post = self.robot_pos_y[i]
-                # Compute the travel distance of robot_i
-                # print(f"IN_STEP_(2): previous position of UAV_{i+1} = ({x_pri},{y_pri})")
-                # print(f"IN_STEP_(3): current  position of UAV_{i+1} = ({x_post},{y_post})")
-                self.travel_dist[i] = np.sqrt((x_pri-x_post)**2 + (y_pri-y_post)**2)
-                # print(f"IN_STEP_(4): travel distance of UAV_{i+1} = {(self.travel_dist[i]):>0.2f}")
-                # print()
-
-        # Compute reward based on the travel distances
-        # TODO: Reward normalization 필요 할지도?..
-        rewards = np.zeros(self.num_uav)
-        for i in range(self.num_uav):  # robot_i에 대해서..
-            if action[i] == 0:  # 움직이지 않기로 한 경우
-                rewards[i] = 0  # 움직이지 않기로 했다면 보상을 하지 않음
-                continue
-            if self.done_task[action[i]-1] == 1:  # 움직이긴 했는데 다음 목적지가 이미 끝난 task 라면..
-                rewards[i] += - self.travel_dist[i]  # 헛수고한 만큼 패널티
-                continue
-            rewards[i] += self.max_travel_dist - self.travel_dist[i]  # 최대 이동거리 쯤 되는 142보다 덜가서 도착하여 save한 거리만큼 보상
-
-        for dup in sorted(self.list_duplicates(action)):
-            if dup[0] == 0:  # 만약 선택한 task가 0으로 중복된거라면.. 그냥 계산 스킵
-                continue
-            # duplicated_rewards = rewards[dup[1]]
-            # reward = reward - sum(duplicated_rewards) + max(duplicated_rewards)
-            rewards[dup[1]] = -self.travel_dist[dup[1]]  # 먄약 선택한 task가 다른 놈이랑 겹치면 음의 리워드
-        reward = sum(rewards)
-
-        # task_completion 업데이트 해서 state 마저 업데이트 하기
-        # Reward 계산에서 done task 업데이트 하기 전의 값이 필요해서 지금 늦게서야 함.
-        for i in action:
-            if i == 0:
-                continue
-            else:
-                self.done_task[i-1] = 1
-
-        # Check if episode is done
-        if self.time_step >= self.num_task:
-            done = True
-            # 아래의 패널티 줄꺼면 if 조건에서 등호를 생략해야함..
-            # reward = (self.num_task - np.sum(self.done_task)) * (-self.max_travel_dist*0.5)
-        elif np.sum(self.done_task) == self.num_task:
-            done = True
-        else:
-            done = False
-
-        # Set placeholder for info
-        info = {}
-
-        # Return step information as a gym env
-        return np.copy(self.state), reward, done, info
 
     def render(self, mode="human"):
         # Implement Viz
@@ -300,13 +240,14 @@ class TAEnvMovingTasks(Env):
     def init_task_vel(self):
         # This func randomly generates velocity for each task
         # Generate random vels in a vector
-        target_vel = np.random.randint(1, 3, self.num_task*2)  # magnitude of vel in each axis is either 1 or 2
+        # target_vel = np.random.randint(1, 2, self.num_task*2)  # magnitude of vel in each axis is either 1 or 2
         # Get signs
-        vel_sign = np.random.randint(0, 2, len(target_vel))*2 - 1
+        # vel_sign = np.random.randint(0, 2, len(target_vel))*2 - 1
         # Apply the sign
-        target_vel *= vel_sign
+        # target_vel *= vel_sign
         # # Reshape it into 2-dim vectors: (-1, 2)
         # target_vel = np.reshape(target_vel, [-1, 2])
+        target_vel = np.random.randint(0, 2, self.num_task*2)*2 - 1
         # if the reshape above is commented out, the target_vel is a 1-D numpy array
 
         return target_vel
@@ -331,90 +272,6 @@ class TAEnvMovingTasks(Env):
                     has_been_changed = True
 
         return has_been_changed  # returns if the task positions have been changed in this call
-
-    def get_optimum(self):
-        # TODO: Write a code to get the optimal solution of a given problem for visualizing gaps
-        # TODO: This does not get the optimal solution yet..
-        if not (self.num_uav == 2 and self.num_task == 3):
-            return False
-
-        a00 = np.array([0, 0])
-        a01 = np.array([0, 1])
-        a02 = np.array([0, 2])
-        a03 = np.array([0, 3])
-        a10 = np.array([1, 0])
-        a12 = np.array([1, 2])
-        a13 = np.array([1, 3])
-        a20 = np.array([2, 0])
-        a21 = np.array([2, 1])
-        a23 = np.array([2, 3])
-        a30 = np.array([3, 0])
-        a31 = np.array([3, 1])
-        a32 = np.array([3, 2])
-
-        action_set = np.zeros([24, 3, 2])  # action
-
-        action_set[0, :, :] = [a10, a20, a30]
-        action_set[1, :, :] = [a10, a30, a20]
-        action_set[2, :, :] = [a20, a10, a30]
-        action_set[3, :, :] = [a20, a30, a10]
-        action_set[4, :, :] = [a30, a10, a20]
-        action_set[5, :, :] = [a30, a20, a10]
-        action_set[6, :, :] = [a13, a20, a00]
-        action_set[7, :, :] = [a23, a10, a00]
-        action_set[8, :, :] = [a12, a30, a00]
-        action_set[9, :, :] = [a32, a10, a00]
-        action_set[10, :, :] = [a21, a30, a00]
-        action_set[11, :, :] = [a31, a20, a00]
-        action_set[12, :, :] = [a12, a03, a00]
-        action_set[13, :, :] = [a13, a02, a00]
-        action_set[14, :, :] = [a21, a03, a00]
-        action_set[15, :, :] = [a23, a01, a00]
-        action_set[16, :, :] = [a31, a02, a00]
-        action_set[17, :, :] = [a32, a01, a00]
-        action_set[18, :, :] = [a01, a02, a03]
-        action_set[19, :, :] = [a01, a03, a02]
-        action_set[20, :, :] = [a02, a01, a03]
-        action_set[21, :, :] = [a02, a03, a01]
-        action_set[22, :, :] = [a03, a01, a02]
-        action_set[23, :, :] = [a03, a02, a01]
-
-        action_set = action_set.astype(int)
-
-        reward_sum_set = np.zeros([24])
-        best_reward_sum = -1000
-        best_episode = -100
-
-        for episode in range(24):
-            # Go back to the initial condition
-            # self.time_step = 0
-            self.reset(is_force_reset=True)
-
-            # Run the episode
-            done = False
-            step = 0
-            reward_sum = 0
-            while not done:
-                # Get an action when the observation given
-                action = action_set[episode, step, :]
-                # Step the env
-                _, reward, done, _ = self.step(action)
-                reward_sum += reward
-                step += 1
-
-            # Check if it's the best one yet
-            if reward_sum > best_reward_sum:
-                best_reward_sum = reward_sum
-                best_episode = episode
-
-            # Save the reward sum
-            reward_sum_set[episode] = reward_sum
-
-        # Get the optimal solution
-        optimal_episode_actions = action_set[best_episode, :, :]
-        optimal_episode_reward = best_reward_sum
-
-        return optimal_episode_actions, optimal_episode_reward, reward_sum_set
 
     def bs_todo_list(self):  # Do not call this method as it does nothing and really is what it is ...
         # TODO (1): Create render func to graphically view the results
