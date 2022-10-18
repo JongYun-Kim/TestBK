@@ -26,7 +26,7 @@ class TAEnvMovingTasksInEpisode(Env):
         3) Reward: Sum of distance-based reward of each robot
     """
 
-    def __init__(self, num_uav=2, num_task=30, task_vel=8):
+    def __init__(self, num_uav=2, num_task=30, task_vel=8, acceleration_change_point=-1):
         """
         :param num_uav: robot의 숫자
         :param num_task: task의 숫자
@@ -68,10 +68,20 @@ class TAEnvMovingTasksInEpisode(Env):
         self.vel_ratio_task_to_uav = 0.5  # must be below 1 and non-negative (v_t = r * v_u)
         self.move_time = task_vel  # task speeds
         self.speed_has_changed = False
+        if acceleration_change_point == -1:
+            acceleration_change_point = int(self.num_task /2)
+            print("ACP was not declared")
+            print(f"ACP = {acceleration_change_point}")
+        self.acceleration_change_point = acceleration_change_point
+        if self.acceleration_change_point > self.num_task:
+            self.acceleration_change_point = int(self.num_task /2)
+            print("The ACP param has got wrong!!!\n This must be smaller than num_task")
+            print(f"But ACP(in) = {acceleration_change_point}.")
+            print(f"This is now: ACP = {self.acceleration_change_point}")
 
     def in_episode_ns(self):
         # Changes the speed of tasks
-        if self.time_step-1 < self.num_task/2:
+        if self.time_step < self.acceleration_change_point:
             # Increase the speed
             self.move_time += 1
         else:
@@ -166,6 +176,7 @@ class TAEnvMovingTasksInEpisode(Env):
         # Apply penalty on the rewards array
         rewards_tot = self.apply_penalty(action, rewards_tot)
 
+        # Get reward scalar from reward of each agent
         rewards = sum(rewards_tot)
 
         # Update_task completion
