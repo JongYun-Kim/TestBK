@@ -67,6 +67,7 @@ class TAEnvMovingTasksInEpisode(Env):
         self.initial_task_vel = np.copy(self.task_vel)
         self.vel_ratio_task_to_uav = 0.5  # must be below 1 and non-negative (v_t = r * v_u)
         self.move_time = task_vel  # task speeds
+        self.initial_move_time = task_vel  # initial task
         self.speed_has_changed = False
         if acceleration_change_point == -1:
             acceleration_change_point = int(self.num_task /2)
@@ -253,6 +254,9 @@ class TAEnvMovingTasksInEpisode(Env):
             self.task_vel = self.init_task_vel()
             self.initial_task_vel = np.copy(self.task_vel)
 
+        # Reset move time (speed of the tasks)
+        self.move_time = self.initial_move_time
+
         # Rearrange other elements of the state
         self.task_pos = self.state[0:2*self.num_task]
         self.task_pos_x = self.task_pos[0:self.num_task]
@@ -290,6 +294,17 @@ class TAEnvMovingTasksInEpisode(Env):
         target_vel = np.random.randint(0, 2, self.num_task*2)*2 - 1  # Get directional vectors with sqrt(2)
         # if the reshape above is commented out, the target_vel is a 1-D numpy array
         return target_vel
+
+    def get_greedy_sol(self):
+        # Initialize current solution
+        sol = np.array([])
+
+        # Get positions of agents and tasks and task completion flags
+
+        # Start the loop of greedy decisions
+
+        # Return the solution and the reward (return val)
+        return sol, rwd
 
     def bs_todo_list(self):  # Do not call this method as it does nothing and really is what it is ...
         # TODO (1): Create render func to graphically view the results
