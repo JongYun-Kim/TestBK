@@ -416,6 +416,63 @@ class TAEnvMovingTasks(Env):
 
         return optimal_episode_actions, optimal_episode_reward, reward_sum_set
 
+    def get_greedy_result(self):
+        def get_greedy_action():
+            # Get the positions of the UAVs and tasks and task completion flags
+            p_uav = np.array(self.robot_pos).reshape(2, -1).T.copy()  # (2x-) 의 uav 위치 행렬
+            dones = np.array(self.done_task)  # 모양은 횡단 행렬
+            p_task = np.array(self.task_pos).reshape(2, -1).T.copy()  # (2 x -)의 task 위치 행렬
+            p_task_remain = p_task[dones == 0]  # completed tasks only!
+            task_number_remain = np.arange(self.num_task)
+            task_number_remain = task_number_remain[dones == 0]  # 남아있는 task의 task 번호 (0부터시작)
+
+            # Get all the distances between UAVs and tasks
+            p_uav_compute = np.repeat(p_uav, repeats=len(p_task_remain), axis=0)
+            p_task_remain_compute = np.tile(p_task_remain, (self.num_uav, 1))
+            # dist_all: uav1-task1, uav1-task2, ..., uav2-task1, uav2-task2, ..., uav_n-task_m)
+            dist_all = np.sqrt(np.sum((p_uav_compute - p_task_remain_compute) ** 2, axis=1))  # 횡 행렬
+            idx_best = np.argsort(dist_all)  # 인덱스 정렬 (int64)
+            idx_best = idx_best[0:self.num_uav]  # 인덱스 중 필요한 것만 남김
+            idx_best_rev = np.flip(idx_best)  # 인덱스 뒤집음; 둘은 연동된 데이터임에 주의하라!!
+
+            # Initialize action
+            action_greedy = np.zeros(self.num_uav, int)
+
+            # Get best action from each best idx from dist_all
+            for i_rev in idx_best_rev:  # idx_best중 뒤에서 부터 읽어보자
+                # dist_all에서의 idx는 남은 task수로 나누면 몫이 uav번호, task_remain번호 (둘다 0 시작)
+                (uav, task_remain) = divmod(i_rev, len(p_task_remain))
+                # 진짜 task number를 구하여야 함.
+                task = task_number_remain[task_remain]
+                # Assign the task of the uav into the action array
+                action[uav] = task + 1
+
+            return action_greedy
+
+        # Initialize the environment
+        self.reset(is_force_reset=True)
+
+        # Run the environment in a loop
+        done = False
+        step = 0
+        greedy_reward_sum = 0
+        while not done:
+            # Compute action from the observation
+            action = get_greedy_action()
+            # action 겹치는 경우
+            for dup in self.list_duplicates(action):
+                # dup[0]: 중복 action, dup[1]: 해당 action의 uav number
+                if dup[0] == 0:
+                    continue
+                for i_dup in dup[1][1:]:
+                    action[i_dup] = 0
+            # Step the env
+            _, reward, done, _ = self.step(action)
+            greedy_reward_sum += reward
+            step += 1
+
+        return greedy_reward_sum
+
     def bs_todo_list(self):  # Do not call this method as it does nothing and really is what it is ...
         # TODO (1): Create render func to graphically view the results
         # TODO (2): Switch the action space from MultiDiscrete to (Single)Discrete space to apply other algos
