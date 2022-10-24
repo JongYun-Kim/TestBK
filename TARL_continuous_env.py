@@ -1,7 +1,6 @@
 """
 Env 설명: 정의된 클래스를 보세요.
 """
-import numpy
 from gym import Env
 from gym.spaces import Box, MultiDiscrete
 # from gym.spaces import Box, Discrete
@@ -69,7 +68,12 @@ class TAEnvDynaInEpisodeContinuous(Env):
         self.change_point = change_point
         self.acceleration = acceleration
 
-    def in_episode_ns(self):
+    def _in_episode_ns(self):
+        """
+        This method generates non-stationarity in the environment
+        by changing the speed and acceleration of the tasks within an episode
+        :return: None
+        """
         # Changes the speed of tasks
         if self.time_step < self.change_point:
             # Increase the speed
@@ -79,14 +83,21 @@ class TAEnvDynaInEpisodeContinuous(Env):
             # You must be careful with negative values if not intended
             self.task_speed -= self.acceleration
 
-    def move_tasks(self):
+    def _move_tasks(self):
+        """
+        This method moves the tasks by one-step given the task velocity.
+        :return: None
+        """
         # move the tasks
         self.task_position += self.task_speed * self.task_direction  # +=는 state도 변화시킴. operator에 주의
-        self.take_into_grid()
+        self._take_into_grid()
 
-    def take_into_grid(self):
-        # This method brings all tasks outside the boundary into the grid of our interest
-        # And the velocities as well accordingly
+    def _take_into_grid(self):
+        """
+        This method brings all tasks outside the boundary into the grid of our interest.
+        It changes the positions and velocity accordingly.
+        :return: (bool) as to whether the task positions have been changed
+        """
         changed = 1
         has_been_changed = False
         while changed:
@@ -104,11 +115,17 @@ class TAEnvDynaInEpisodeContinuous(Env):
                     has_been_changed = True
         return has_been_changed
 
-    def move_uavs_to_tasks(self, action):
+    def _move_uavs_to_tasks(self, action):
+        """
+        This method applies the action to the UAV positions.
+        Each UAV moves to the task position according to the given action
+        :param action: (np.ndarray) action of the environment
+        :return: (np.ndarray) traveled distances of the UAVs, (np.ndarray) updated UAV positions
+        """
         # Get next uav positions, which are target task positions
         uav_next_pos = self.task_position[action-1, :].copy()
         # Correct the stationary UAVs' target (the UAVs don't move)
-        stationary_uav_index = np.where(action==0)
+        stationary_uav_index = np.where(action == 0)
         uav_next_pos[stationary_uav_index, :] = self.uav_position[stationary_uav_index, :].copy()
 
         # Get the distance between each uav and its assigned task
@@ -117,9 +134,18 @@ class TAEnvDynaInEpisodeContinuous(Env):
 
         return distances, uav_next_pos
 
-    def apply_penalty(self, action, rewards_tot):
+    def _apply_penalty(self, action, rewards_tot):
+        """
+        This methods applies the penalty to the given reward array.
+        penalty(1): 다른 UAV와 중복된 task를 고른경우
+        penalty(2): 이전 step에서 이미 끝난 task를 고른경우
+        Note: penalty(1)과 penalty(2)는 중복으로 가능함
+        :param action: (np.ndarray) action array of each UAV; each val means target UAV number (0 is to keep the pos)
+        :param rewards_tot: (np.ndarray) reward array of each UAV
+        :return: updated reward array
+        """
         # Impose penalty (1): target task duplications
-        for dup in self.list_duplicates(action):  # dup[0]: task number, dump[1]: uav number in index
+        for dup in self._list_duplicates(action):  # dup[0]: task number, dump[1]: uav number in index
             if dup[0] == 0:  # 만약 선택한 task가 0으로 중복된거라면.. 그냥 계산 스킵
                 continue
             # rewards_tot[dup[1]] = - (rewards_stationary[dup[1]] + rewards_non_stationary[dup[1]])
@@ -136,8 +162,14 @@ class TAEnvDynaInEpisodeContinuous(Env):
                 continue
         return rewards_tot
 
-    # See https://stackoverflow.com/a/5419576
-    def list_duplicates(self, seq):
+    def _list_duplicates(self, seq):
+        """
+        This (static) method returns the duplicated elements of the input sequence.
+        Please see the link below for more information.
+        # https://stackoverflow.com/a/5419576
+        :param seq: (list) the array of interest
+        :return: (dictionary) key: duplicated element, val: index of the element
+        """
         tally = defaultdict(list)
         for i, item in enumerate(seq):
             tally[item].append(i)
@@ -145,7 +177,7 @@ class TAEnvDynaInEpisodeContinuous(Env):
                 if len(locs) > 1)
 
     # def step(self, action: np.ndarray):
-    def step(self, action):
+    def step(self, action: np.ndarray):
         # Update time step
         if self.time_step is None:
             raise Exception("You must reset the environment before step.")
@@ -160,18 +192,18 @@ class TAEnvDynaInEpisodeContinuous(Env):
 
         # In-episode non-stationarity
         if self.is_ns_in_episode:
-            self.in_episode_ns()
+            self._in_episode_ns()
 
         # Move the tasks
         if self.is_moving:
-            self.move_tasks()
+            self._move_tasks()
 
         # Update uav positions and get traveled distances
-        rewards_uavs, self.uav_position[:] = self.move_uavs_to_tasks(action)
+        rewards_uavs, self.uav_position[:] = self._move_uavs_to_tasks(action)
         rewards_tot += - rewards_uavs
 
         # Apply penalty
-        rewards_tot = self.apply_penalty(action, rewards_tot)
+        rewards_tot = self._apply_penalty(action, rewards_tot)
 
         # Reward scalar update
         # rewards_tot += rewards_uavs + rewards_penalty
@@ -203,7 +235,7 @@ class TAEnvDynaInEpisodeContinuous(Env):
 
         if has_been_reset is not True or do_over is not True:  # 리셋 안해봤거나 반복 안하는 경우
             self.initial_state = self.observation_space.sample()
-            self.initial_task_direction = self.init_task_direction()
+            self.initial_task_direction = self._init_task_direction()
 
         self.time_step = 0
         self.state = self.initial_state.copy()
@@ -221,7 +253,7 @@ class TAEnvDynaInEpisodeContinuous(Env):
 
         return np.copy(self.state)
 
-    def init_task_direction(self):
+    def _init_task_direction(self):
         theta = np.random.rand(self.num_task, 1) * 2 * np.pi
         dir_data = np.concatenate([np.cos(theta), np.sin(theta)], 1)
         dir_vec = np.array(dir_data)
@@ -265,7 +297,7 @@ class TAEnvDynaInEpisodeContinuous(Env):
                 # 진짜 task number를 구하여야 함.
                 task = task_number_remain[task_remain]
                 # Assign the task of the uav into the action array
-                action[uav] = task + 1
+                action_greedy[uav] = task + 1
 
             return action_greedy
 
@@ -283,7 +315,7 @@ class TAEnvDynaInEpisodeContinuous(Env):
             # Compute action from the observation
             action = get_greedy_action()
             # action 겹치는 경우
-            for dup in self.list_duplicates(action):
+            for dup in self._list_duplicates(action):
                 # dup[0]: 중복 action, dup[1]: 해당 action의 uav number
                 if dup[0] == 0:
                     continue
