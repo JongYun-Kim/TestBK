@@ -57,7 +57,7 @@ class TAEnvDynaInEpContActionMasked(Env):
         self.observation_space = Dict(
             {
                 "action_mask": Box(0.0, 1.0, (self._my_logit_size,)),  # 0.은 invalid, 1.은 valid (float!!)
-                "observation": Box(low=np.zeros(obs_size), high=np.ones(obs_size), dtype=float)
+                "observations": Box(low=np.zeros(obs_size), high=np.ones(obs_size), dtype=float)
             }
         )
         # self.observation_space = Box(low=np.zeros(obs_size), high=np.ones(obs_size), dtype=float)
@@ -167,7 +167,8 @@ class TAEnvDynaInEpContActionMasked(Env):
                 continue
             if self.task_completion[target_task - 1] == 1:  # 움직이긴 했는데 다음 목적지가 이미 끝난 task 라면..
                 rewards_tot[uav_i] -= self.penalty  # 헛수고한 만큼 패널티
-                print("Invalid action has been carried out !!!!!")
+                for _ in range(10):
+                    print("Invalid action has been carried out !!!!!")
                 # TODO: 같은지 체크할 때... 반드시 데이터 타입을 고려해야함.. 파이썬이 알아서 하긴 일단 하고 있음.
                 continue
         return rewards_tot
@@ -257,7 +258,7 @@ class TAEnvDynaInEpContActionMasked(Env):
         has_been_reset = False if self.time_step is None else True
 
         if has_been_reset is not True or do_over is not True:  # 리셋 안해봤거나 반복 안하는 경우
-            self.initial_state = self.observation_space["observation"].sample()
+            self.initial_state = self.observation_space["observations"].sample()
             self.initial_task_direction = self._init_task_direction()
 
         self.time_step = 0
@@ -275,12 +276,12 @@ class TAEnvDynaInEpContActionMasked(Env):
         self.task_completion[:] = 0.0
 
         # Reset action mask: fill it with full of 1.0
-        self.valid_actions = np.full(self._my_logit_size, 1.0)  # logit 크기로 가로인 1.0 np.ndarray
+        self.valid_actions = np.full(self._my_logit_size, 1.0, dtype='float32')  # logit 크기로 가로인 1.0 np.ndarray
 
         # Merge original state and action mask
         self.state_w_mask = self.observation_space.sample()  # to make it: collections.OrderedDict
         self.state_w_mask["action_mask"] = self.valid_actions
-        self.state_w_mask["observation"] = self.state
+        self.state_w_mask["observations"] = self.state
         # Below is commented out to keep the state_w_mask a collections.OrderedDict instead of (regular) python dict
         # self.state_w_mask = {
         #     "action_mask": self.valid_actions,
