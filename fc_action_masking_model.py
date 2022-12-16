@@ -27,6 +27,7 @@ class FCActionMaskModelJY(TorchModelV2, nn.Module):
         name,
         **kwargs,
     ):
+        # Get the original observation space from the input as it has been preprocessed
         orig_space = getattr(obs_space, "original_space", obs_space)
         assert (
             isinstance(orig_space, Dict)
@@ -66,6 +67,11 @@ class FCActionMaskModelJY(TorchModelV2, nn.Module):
         # Convert action_mask into a [0.0 || -inf]-type mask.
         inf_mask = torch.clamp(torch.log(action_mask), min=FLOAT_MIN)
         masked_logits = logits + inf_mask
+
+        # print(f"action_mask.dtype = {action_mask.dtype}")
+        # print(f"inf_mask = {inf_mask.dtype}")
+        # print(f"logits = {logits.dtype}")
+        # print(f"masked_logits = {masked_logits.dtype}")
 
         # Return masked logits.
         return masked_logits, state
