@@ -579,7 +579,8 @@ class TAEnvRandSpeedContObs(Env):
 
         self.time_step = 0
         self.state = self.initial_state.copy()
-        self.task_speed = self.initial_task_speed.copy()
+        # self.task_speed = self.initial_task_speed.copy()
+        self.task_speed = np.copy(self.initial_task_speed)  # float object has no attribute copy: np.copy instead!
         self.task_direction = self.initial_task_direction.copy()
 
         # Rearrange the state
