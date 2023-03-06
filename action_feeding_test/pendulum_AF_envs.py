@@ -19,11 +19,11 @@ class PendulumActionStackedEnv(PendulumEnv):
             self.af = af
         else:
             raise "[DataTypeError] Please af must be a boolean !!"
-        if stack_length < 1:
-            raise "stack_length must NOT be smaller than 1"
         if isinstance(stack_length, int) is False:
             print("stack_length has been casted into an int val")
         if self.af:
+            if stack_length < 1:
+                raise "stack_length must NOT be smaller than 1"
             self.stack_length = int(stack_length)
             high_org = np.array([1.0, 1.0, 8.0], dtype=np.float32)  # action added at the last (-2.0 - +2.0)
             high_action = 2.0 * np.ones(self.stack_length, dtype=np.float32)
@@ -79,6 +79,7 @@ class PendulumObsNoise(PendulumActionStackedEnv):
 
     def __init__(self,
                  config: EnvContext,
+                 # config: dict,
                  ):
         """
         :param config: configuration of the environment
@@ -96,29 +97,29 @@ class PendulumObsNoise(PendulumActionStackedEnv):
             stack_length: (int) how many actions are you going to stack
 
         Template
-            config = {AF: True,
-                      stack_length: 1,
-                      noise_mode: "Uniform",
-                      obs_pos_radius: 0.1,
-                      obs_pos_radius: 0.1,
-                      noise_mode: "Normal",
-                      obs_pos_noise_std: 0.05,
-                      obs_pos_noise_std: 0.05,
-                      noise_mode: "Clear",
+            config = {"AF": True,
+                      "stack_length": 1,
+                      "noise_mode": "Uniform",
+                      "obs_pos_radius": 0.1,
+                      "obs_ang_radius": 0.1,
+                      "noise_mode": "Normal",
+                      "obs_pos_noise_std": 0.05,
+                      "obs_ang_noise_std": 0.05,
+                      "noise_mode": "Clear",
                      }
         """
         # Get the config
         self.config_action = config
         # Get mode
         self.noise_mode = config["noise_mode"]
-        if self.noise_mode is not ("Uniform" or "Normal" or "Clear"):
+        if self.noise_mode not in ["Uniform", "Normal", "Clear"]:
             raise "noise_mode must be either Uniform, Normal, or Clear."
 
         # Init the env
         super().__init__(af=config["AF"], stack_length=config["stack_length"])  # It uses g=10.0 for now
 
     def _get_new_obs(self, obs_env):
-        obs_bound = np.array([1.0, 1.0, self.max_speed], dtype=np.float32)
+        obs_bound = 1.5 * np.array([1.0, 1.0, self.max_speed], dtype=np.float32)
         # Get new obs
         if self.noise_mode == "Uniform":
             radius_pos = float(self.config_action["obs_pos_radius"])
@@ -149,8 +150,8 @@ class PendulumObsNoise(PendulumActionStackedEnv):
 
         return self.obs_tot, reward, done, info
 
-    def reset(self):
-        pass
+    # def reset(self):
+    #     pass
 
 
 class PendulumActionNoise(PendulumActionStackedEnv):
@@ -172,20 +173,20 @@ class PendulumActionNoise(PendulumActionStackedEnv):
             stack_length: (int) how many actions are you going to stack
 
         Template
-            config = {AF: True,
-                      stack_length: 1,
-                      noise_mode: "Uniform",
-                      action_radius: 0.15,
-                      noise_mode: "Normal",
-                      action_noise_std: 0.1,
-                      noise_mode: "Clear",
+            config = {"AF": True,
+                      "stack_length": 1,
+                      "noise_mode": "Uniform",
+                      "action_radius": 0.15,
+                      "noise_mode": "Normal",
+                      "action_noise_std": 0.1,
+                      "noise_mode": "Clear",
                      }
         """
         # Get the config
         self.config_action = config
         # Get mode
         self.noise_mode = config["noise_mode"]
-        if self.noise_mode is not ("Uniform" or "Normal" or "Clear"):
+        if self.noise_mode not in ["Uniform", "Normal", "Clear"]:
             raise "noise_mode must be either Uniform, Normal, or Clear."
 
         # Init the env
@@ -220,8 +221,8 @@ class PendulumActionNoise(PendulumActionStackedEnv):
 
         return self.obs_tot, reward, done, info
 
-    def reset(self):
-        pass
+    # def reset(self):
+    #     pass
 
 
 class PendulumTransitionNoise(PendulumActionStackedEnv):
@@ -246,20 +247,20 @@ class PendulumTransitionNoise(PendulumActionStackedEnv):
                 stack_length: (int) how many actions are you going to stack
 
         Template
-            config = {AF: True,
-                      stack_length: 1,
-                      g_mode: "Fixed",
-                      g_fixed: 9.81,
-                      g_mode: "Uniform",
-                      g_min: 9.8,
-                      g_max: 12.0
-                      g_mode: "Discrete",
-                      g_min: 9.0,
-                      g_interval: 0.1,
-                      g_max_count: 21,
-                      g_mode: "Normal",
-                      g_mean: 9.5,
-                      g_std: 1.0,
+            config = {"AF": True,
+                      "stack_length": 1,
+                      "g_mode": "Fixed",
+                      "g_fixed": 9.81,
+                      "g_mode": "Uniform",
+                      "g_min": 9.8,
+                      "g_max": 12.0,
+                      "g_mode": "Discrete",
+                      "g_min": 9.0,
+                      "g_interval": 0.1,
+                      "g_max_count": 21,
+                      "g_mode": "Normal",
+                      "g_mean": 9.5,
+                      "g_std": 1.0,
                      }
         """
         # Set g_bottom
@@ -341,22 +342,22 @@ class PendulumRewardNoise(PendulumActionStackedEnv):
                 stack_length: (int) how many actions are you going to stack
 
             Template
-                config = {AF: True,
-                          stack_length: 1,
-                          noise_mode: "Coefficient",
-                          c1: 1.0,
-                          c2: 0.1,
-                          c3: 0.001,
-                          noise_mode: "Discounted",
-                          discount_factor: 0.95,
-                          noise_mode: "Clear",
+                config = {"AF": True,
+                          "stack_length": 1,
+                          "noise_mode": "Coefficient",
+                          "c1": 1.0,
+                          "c2": 0.1,
+                          "c3": 0.001,
+                          "noise_mode": "Discounted",
+                          "discount_factor": 0.95,
+                          "noise_mode": "Clear",
                          }
         """
         # Get the config
         self.config_reward = config
         # Get mode
         self.noise_mode = config["noise_mode"]
-        if self.noise_mode is not ("Uniform" or "Normal" or "Clear"):
+        if self.noise_mode not in ["Uniform", "Normal", "Clear"]:
             raise "noise_mode must be either Coefficient, Discounted, Uniform, Normal, or Clear."
 
         # Init the env
@@ -396,8 +397,8 @@ class PendulumRewardNoise(PendulumActionStackedEnv):
 
         return self.obs_tot, reward, done, info
 
-    def reset(self):
-        pass
+    # def reset(self):
+    #     pass
 
 
 class PendulumPartialObs(PendulumEnv):
